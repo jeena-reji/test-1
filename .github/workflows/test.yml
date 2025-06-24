@@ -1,23 +1,23 @@
-name: Create Draft Pre-release with Auto Notes
+name: Create Draft Release with Auto Notes
 
 on:
-  workflow_dispatch:  # For manual trigger
+  workflow_dispatch:  # Manual trigger (optional)
   push:
     tags:
-      - 'v*'  # Triggers for version tags
+      - 'v*'  # Triggers when a version tag like v1.0.0 is pushed
 
 jobs:
-  create-draft-prerelease:
+  create-draft-release:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Create Draft GitHub Pre-release
+      - name: Create Draft GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          draft: true                  # Draft release
-          generate_release_notes: true
+          draft: true  # 🔹 This makes it a draft release
+          generate_release_notes: true  # 🔹 This generates release notes from PRs/commits
         env:
-          GITHUB_TOKEN: ${{ secrets.GHUSER}}
+          GITHUB_TOKEN: ${{ secrets.GHUSER }}
