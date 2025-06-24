@@ -1,22 +1,22 @@
 
-name: Create Release with Auto Notes
+# name: Create Release with Auto Notes
 
-on:
-  workflow_dispatch:  # Manually trigger if needed
-  push:
-    tags:
-      - 'v*'  # Trigger on version tags like v1.0.0
+# on:
+#   workflow_dispatch:  # Manually trigger if needed
+#   push:
+#     tags:
+#       - 'v*'  # Trigger on version tags like v1.0.0
 
-jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+# jobs:
+#   create-release:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout Code
+#         uses: actions/checkout@v4
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GHUSER }}
+#       - name: Create GitHub Release
+#         uses: softprops/action-gh-release@v1
+#         with:
+#           generate_release_notes: true
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GHUSER }}
