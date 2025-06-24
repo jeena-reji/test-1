@@ -18,7 +18,6 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           draft: true                  # Draft release
-          prerelease: true            # Mark as pre-release
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GHUSER}}
