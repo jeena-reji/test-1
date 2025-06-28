@@ -1,20 +1,20 @@
-# name: Draft Release Notes
+name: Draft Release Notes
 
-# on:
-#   push:
-#     branches:
-#       - main
-#     tags:
-#       - 'v*' 
-#   pull_request:
-#     types: [closed]
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*' 
+  pull_request:
+    types: closed
 
-# jobs:
-#   update_release_draft:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - uses: release-drafter/release-drafter@v6
-#         with:
-#           config-name: release-drafter.yml
-#         env:
-#           GITHUB_TOKEN: ${{ secrets.GHUSER }}
+jobs:
+  update_release_draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: release-drafter/release-drafter@v6
+        with:
+          config-name: release-drafter.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHUSER }}
