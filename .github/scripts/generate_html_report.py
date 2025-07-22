@@ -92,6 +92,21 @@ def parse_pylint(file):
 
     return structured_rows if structured_rows else [["", msg] for msg in fallback_rows if msg.strip()]
 
+def parse_staticcheck(file):
+    lines = parse_lines(file)
+    structured_rows = []
+    fallback_rows = []
+
+    for line in lines:
+        match = re.match(r"^(.*?):(\d+):(\d+): (.*)", line)
+        if match:
+            structured_rows.append(list(match.groups()))
+        else:
+            fallback_rows.append(escape(line))
+
+    return structured_rows, fallback_rows
+
+
 def parse_mustache(file):
     return [["", l] for l in parse_lines(file)]
 
@@ -104,6 +119,7 @@ PARSERS = {
     "flake8.txt": parse_flake8,
     "pylint.txt": parse_pylint,
     "mustache.txt": parse_mustache,
+    "staticcheck.txt": parse_staticcheck,
 }
 
 TOOL_HEADERS = {
@@ -114,6 +130,7 @@ TOOL_HEADERS = {
     "flake8.txt": ["File", "Line", "Column", "Message"],
     "pylint.txt": ["File", "Line", "Column", "Message"],
     "mustache.txt": ["", "Message"]
+    "staticcheck.txt": ["File", "Line", "Column", "Message"],
 }
 
 TOOL_DESCRIPTIONS = {
@@ -123,7 +140,8 @@ TOOL_DESCRIPTIONS = {
     "checkstyle.txt": "Checkstyle: Code style and formatting violations in Java.",
     "flake8.txt": "Flake8: Python code linting and style checker.",
     "pylint.txt": "Pylint: Deep static analysis for Python with code ratings.",
-    "mustache.txt": "Mustache: Checks Mustache templates (if applicable)."
+    "mustache.txt": "Mustache: Checks Mustache templates (if applicable).",
+    "staticcheck.txt": "Staticcheck: Advanced Go static analysis (like lint, vet, etc).",
 }
 
 def main():
@@ -132,6 +150,7 @@ def main():
         "Python": ["flake8.txt", "pylint.txt"],
         "C/C++": ["clang-tidy.txt", "cppcheck.txt"],
         "Makefile": ["checkmake.txt"],
+        "Go": ["staticcheck.txt"],
         "Java": ["checkstyle.txt"],
         "Mustache": ["mustache.txt"],
     }
