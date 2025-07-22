@@ -15,6 +15,7 @@ on:
 jobs:
   static-analysis:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout current repo
         uses: actions/checkout@v4
@@ -26,44 +27,64 @@ jobs:
           repository: ${{ github.event.inputs.target_repository }}
           token: ${{ secrets.IOS_TOKEN }}
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-tidy cppcheck python3-flake8 pylint checkstyle default-jdk checkmake
-          pip install mustache-lint
+          sudo apt-get install -y clang-tidy cppcheck python3-pip openjdk-17-jdk curl unzip
 
-      # 🔎 C/C++ Check
+      - name: Install Python linters
+        run: |
+          pip3 install flake8 pylint mustache-lint
+
+      - name: Install Checkstyle (Java)
+        run: |
+          curl -LJO https://github.com/checkstyle/checkstyle/releases/download/checkstyle-10.12.4/checkstyle-10.12.4-all.jar
+
+      - name: Set up Go (for checkmake)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install checkmake
+        run: |
+          go install github.com/mrtazz/checkmake@latest
+          echo "${HOME}/go/bin" >> $GITHUB_PATH
+
+      # === Static Checks ===
+
+      - name: Create report folder
+        run: mkdir -p reports
+
       - name: C/C++ Analysis (clang-tidy + cppcheck)
         run: |
-          mkdir -p reports
           cppcheck . 2> reports/cppcheck.txt || true
           clang-tidy $(find . -name '*.c' -o -name '*.cpp') -- 2> reports/clang-tidy.txt || true
 
-      # 🐍 Python Lint
       - name: Python Analysis (flake8 + pylint)
         run: |
           flake8 . > reports/flake8.txt || true
           pylint $(find . -name "*.py") > reports/pylint.txt || true
 
-      # ☕ Java Lint
       - name: Java Analysis (Checkstyle)
         run: |
-          curl -LJO https://github.com/checkstyle/checkstyle/releases/download/checkstyle-10.12.4/checkstyle-10.12.4-all.jar
           find . -name "*.java" > java-files.txt
-          java -jar checkstyle-10.12.4-all.jar -c /google_checks.xml -f plain -o reports/checkstyle.txt @java-files.txt || true
+          if [ -s java-files.txt ]; then
+            java -jar checkstyle-10.12.4-all.jar -c /google_checks.xml -f plain -o reports/checkstyle.txt @java-files.txt || true
+          else
+            echo "No Java files found." > reports/checkstyle.txt
+          fi
 
-      # 🧰 Makefile Lint
       - name: Makefile Analysis (checkmake)
         run: |
           find . -name 'Makefile' -exec checkmake {} \; > reports/checkmake.txt || true
 
-      # 🎭 Mustache Lint
       - name: Mustache Analysis
         run: |
           find . -name '*.mustache' -exec mustache-lint {} \; > reports/mustache.txt || true
 
-      # 📄 Combine to HTML Report
-      - name: Generate HTML Report
+      # === HTML Report Generation ===
+
+      - name: Generate Combined HTML Report
         run: |
           echo "<html><body><h1>Static Analysis Report</h1>" > reports/staticcheck.html
           for file in reports/*.txt; do
@@ -71,7 +92,7 @@ jobs:
           done
           echo "</body></html>" >> reports/staticcheck.html
 
-      - name: Upload Reports
+      - name: Upload Report Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: staticcheck-reports
