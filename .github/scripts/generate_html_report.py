@@ -43,13 +43,22 @@ def parse_checkmake(file):
 def parse_clang_tidy(file):
     lines = parse_lines(file)
     rows = []
+    structured_rows = []
+    fallback_rows = []
+
     for line in lines:
         match = re.match(r"^(.*?):(\d+):(\d+): (.*)", line)
         if match:
-            file, line, col, msg = match.groups()
-            rows.append([file, line, col, msg])
-    return rows if rows else [["No structured output found."]]
+            f, l, c, msg = match.groups()
+            structured_rows.append([f, l, c, msg])
+        else:
+            fallback_rows.append(line)
 
+    # If structured rows exist, use them; else show fallback as single-column
+    if structured_rows:
+        return structured_rows
+    else:
+        return [["", msg] for msg in fallback_rows if msg.strip()]
 def parse_cppcheck(file):
     return parse_clang_tidy(file)
 
