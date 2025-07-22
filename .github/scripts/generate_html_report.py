@@ -10,8 +10,11 @@ def parse_lines(path):
     with open(path) as f:
         return [line.strip("\n") for line in f.readlines()]
 
-def make_html_table(title, headers, rows):
-    html = f"<h2>{escape(title)}</h2><table><tr>"
+def make_html_table(title, headers, rows, description=""):
+    html = f"<h2><b>{escape(title)}</b></h2>"
+    if description:
+        html += f"<p><i>{escape(description)}</i></p>"
+    html += "<table><tr>"
     html += "".join(f"<th>{escape(h)}</th>" for h in headers)
     html += "</tr>"
     for row in rows:
@@ -40,16 +43,12 @@ def parse_checkmake(file):
 def parse_clang_tidy(file):
     lines = parse_lines(file)
     rows = []
-    buffer = []
     for line in lines:
-        if re.match(r"^.*:\d+:\d+: ", line):
-            if buffer:
-                rows.append(["\n".join(buffer)])
-                buffer = []
-        buffer.append(line)
-    if buffer:
-        rows.append(["\n".join(buffer)])
-    return rows
+        match = re.match(r"^(.*?):(\d+):(\d+): (.*)", line)
+        if match:
+            file, line, col, msg = match.groups()
+            rows.append([file, line, col, msg])
+    return rows if rows else [["No structured output found."]]
 
 def parse_cppcheck(file):
     return parse_clang_tidy(file)
@@ -60,18 +59,17 @@ def parse_checkstyle(file):
     return rows
 
 def parse_flake8(file):
-    lines = parse_lines(file)
-    return [line.split(":", 3) for line in lines if ":" in line]
+    return [line.split(":", 3) for line in parse_lines(file) if ":" in line]
 
 def parse_pylint(file):
-    lines = parse_lines(file)
     return parse_clang_tidy(file)
 
 def parse_mustache(file):
     return [["", l] for l in parse_lines(file)]
 
+# Tool-specific configurations
 PARSERS = {
-    "checkmake.txt": lambda f: parse_checkmake(f),
+    "checkmake.txt": parse_checkmake,
     "clang-tidy.txt": parse_clang_tidy,
     "cppcheck.txt": parse_cppcheck,
     "checkstyle.txt": parse_checkstyle,
@@ -80,26 +78,50 @@ PARSERS = {
     "mustache.txt": parse_mustache,
 }
 
+TOOL_HEADERS = {
+    "checkmake.txt": ["Rule", "Desc", "File", "Line", "Message"],
+    "clang-tidy.txt": ["File", "Line", "Column", "Message"],
+    "cppcheck.txt": ["File", "Line", "Column", "Message"],
+    "checkstyle.txt": ["File", "Line", "Column", "Message"],
+    "flake8.txt": ["File", "Line", "Column", "Message"],
+    "pylint.txt": ["File", "Line", "Column", "Message"],
+    "mustache.txt": ["", "Message"]
+}
+
+TOOL_DESCRIPTIONS = {
+    "clang-tidy.txt": "Clang-Tidy: Advanced C/C++ static analysis using Clang compiler internals.",
+    "cppcheck.txt": "Cppcheck: Detects bugs, memory issues, and undefined behavior in C/C++.",
+    "checkmake.txt": "Checkmake: Analyzes Makefiles for common issues.",
+    "checkstyle.txt": "Checkstyle: Code style and formatting violations in Java.",
+    "flake8.txt": "Flake8: Python code linting and style checker.",
+    "pylint.txt": "Pylint: Deep static analysis for Python with code ratings.",
+    "mustache.txt": "Mustache: Checks Mustache templates (if applicable)."
+}
+
 def main():
     with open(HTML_OUT, "w") as out:
         out.write("<html><head><style>")
         out.write("""
-        body { font-family: Arial; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; vertical-align: top; }
         th { background-color: #f2f2f2; }
-        pre { white-space: pre-wrap; margin: 0; }
+        h1 { font-size: 28px; }
+        h2 { font-size: 22px; margin-top: 40px; }
+        pre { white-space: pre-wrap; margin: 0; font-family: Consolas, monospace; }
+        b { color: #333; }
         """)
-        out.write("</style></head><body><h1>Static Analysis Report</h1>")
+        out.write("</style></head><body><h1><b>Static Analysis Report</b></h1>")
 
         for file in sorted(REPORT_DIR.glob("*.txt")):
             parser = PARSERS.get(file.name, parse_generic)
             try:
                 rows = parser(file)
-                headers = ["File", "Line", "Message"] if file.name not in PARSERS else ["Message"] * len(rows[0])
-                out.write(make_html_table(file.name, headers, rows))
+                headers = TOOL_HEADERS.get(file.name, ["Message"])
+                desc = TOOL_DESCRIPTIONS.get(file.name, "")
+                out.write(make_html_table(file.name, headers, rows, description=desc))
             except Exception as e:
-                out.write(f"<h2>{file.name}</h2><p>Error parsing: {e}</p>")
+                out.write(f"<h2>{file.name}</h2><p><b>Error parsing:</b> {e}</p>")
 
         out.write("</body></html>")
 
