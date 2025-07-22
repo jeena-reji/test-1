@@ -129,7 +129,7 @@ TOOL_HEADERS = {
     "checkstyle.txt": ["File", "Line", "Column", "Message"],
     "flake8.txt": ["File", "Line", "Column", "Message"],
     "pylint.txt": ["File", "Line", "Column", "Message"],
-    "mustache.txt": ["", "Message"]
+    "mustache.txt": ["", "Message"],
     "staticcheck.txt": ["File", "Line", "Column", "Message"],
 }
 
