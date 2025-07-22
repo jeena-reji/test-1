@@ -23,8 +23,7 @@ def make_html_table(title, headers, rows, description=""):
     return html
 
 def parse_generic(file):
-    lines = parse_lines(file)
-    return [["", l] for l in lines]
+    return [["", l] for l in parse_lines(file)]
 
 def parse_checkmake(file):
     rows = []
@@ -42,7 +41,6 @@ def parse_checkmake(file):
 
 def parse_clang_tidy(file):
     lines = parse_lines(file)
-    rows = []
     structured_rows = []
     fallback_rows = []
 
@@ -54,21 +52,17 @@ def parse_clang_tidy(file):
         else:
             fallback_rows.append(line)
 
-    # If structured rows exist, use them; else show fallback as single-column
-    if structured_rows:
-        return structured_rows
-    else:
-        return [["", msg] for msg in fallback_rows if msg.strip()]
+    return structured_rows if structured_rows else [["", msg] for msg in fallback_rows if msg.strip()]
+
 def parse_cppcheck(file):
     return parse_clang_tidy(file)
 
 def parse_checkstyle(file):
     lines = parse_lines(file)
-    rows = [line.split(":", 3) for line in lines if ":" in line]
-    return rows
+    return [line.split(":", 3) for line in lines if ":" in line]
 
 def parse_flake8(file):
-     lines = parse_lines(file)
+    lines = parse_lines(file)
     structured_rows = []
     fallback_rows = []
 
@@ -79,10 +73,8 @@ def parse_flake8(file):
         else:
             fallback_rows.append(line)
 
-    if structured_rows:
-        return structured_rows
-    else:
-        return [["", msg] for msg in fallback_rows if msg.strip()]
+    return structured_rows if structured_rows else [["", msg] for msg in fallback_rows if msg.strip()]
+
 def parse_pylint(file):
     lines = parse_lines(file)
     structured_rows = []
@@ -90,8 +82,7 @@ def parse_pylint(file):
 
     for line in lines:
         if "Your code has been rated at" in line:
-            escaped = html.escape(line)
-            fallback_rows.append(f"<b>{escaped}</b>")
+            fallback_rows.append(f"<b>{escape(line)}</b>")
         else:
             match = re.match(r"^(.*?):(\d+):(\d+): (.*)", line)
             if match:
@@ -99,10 +90,7 @@ def parse_pylint(file):
             else:
                 fallback_rows.append(line)
 
-    if structured_rows:
-        return structured_rows
-    else:
-        return [["", msg] for msg in fallback_rows if msg.strip()]
+    return structured_rows if structured_rows else [["", msg] for msg in fallback_rows if msg.strip()]
 
 def parse_mustache(file):
     return [["", l] for l in parse_lines(file)]
@@ -178,7 +166,6 @@ def main():
                     out.write(f"<h3>{fname}</h3><p><b>Error parsing:</b> {e}</p>")
 
         out.write("</body></html>")
-
 
 if __name__ == "__main__":
     main()
