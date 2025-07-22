@@ -1,160 +1,48 @@
-name: Multi-Language Static Check with Structured HTML Report
+name: Code Lint & HTML Report
 
 on:
-  workflow_dispatch:
-    inputs:
-      target_repository:
-        description: 'Target repository (e.g., owner/repo-name)'
-        required: true
-        type: string
-  pull_request:
-    branches: [main]
   push:
     branches: [main]
+  pull_request:
 
 jobs:
-  static-analysis:
+  lint:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout current repo
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      - name: Checkout target repo if manually triggered
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.event.inputs.target_repository }}
-          token: ${{ secrets.IOS_TOKEN }}
-
-      - name: Install dependencies
+      - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y cppcheck python3-pip openjdk-17-jdk curl
-          python3 -m pip install --upgrade pip
-          pip install flake8 pylint
+          sudo apt-get install -y clang-tidy cppcheck golang
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.56.2
+          pip install pandas jinja2
 
-      - name: Install checkstyle
+      - name: Run clang-tidy
         run: |
-          curl -LJO https://github.com/checkstyle/checkstyle/releases/download/checkstyle-10.12.4/checkstyle-10.12.4-all.jar
+          find . -name '*.c' -o -name '*.cpp' > c_cpp_files.txt || true
+          while read -r file; do
+            clang-tidy "$file" -- > "clang_tidy_${file//\//_}.txt" || true
+          done < c_cpp_files.txt
 
-      - name: Set up Go for checkmake
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-
-      - name: Install checkmake
+      - name: Run cppcheck
         run: |
-          go install github.com/mrtazz/checkmake/cmd/checkmake@latest
-          echo "${HOME}/go/bin" >> $GITHUB_PATH
+          cppcheck . --enable=all --xml 2> cppcheck.xml || true
 
-      - name: Run cppcheck (C/C++)
+      - name: Run golangci-lint
         run: |
-          mkdir -p reports
-          cppcheck --enable=all --inconclusive --xml --xml-version=2 . 2> reports/cppcheck.xml || true
-
-      - name: Run Python linters
-        run: |
-          flake8 . --format=default > reports/flake8.txt || true
-          pylint $(find . -name "*.py") > reports/pylint.txt || true
-
-      - name: Run Java checkstyle
-        run: |
-          find . -name "*.java" > java-files.txt
-          if [ -s java-files.txt ]; then
-            java -jar checkstyle-10.12.4-all.jar -c /google_checks.xml -f xml -o reports/checkstyle.xml @java-files.txt || true
-          else
-            echo "<checkstyle></checkstyle>" > reports/checkstyle.xml
+          if [ -d "./go.mod" ] || [ -d "./*.go" ]; then
+            golangci-lint run --out-format checkstyle > golint.xml || true
           fi
 
-      - name: Run checkmake (Makefiles)
+      - name: Generate HTML Report
         run: |
-          find . -name 'Makefile' -exec checkmake {} \; > reports/checkmake.txt || true
+          python3 scripts/generate_html_report.py
 
-      - name: Generate structured HTML report
-        run: |
-          python3 <<EOF
-import os
-import xml.etree.ElementTree as ET
-from pathlib import Path
-
-os.makedirs('reports', exist_ok=True)
-html = ['<html><head><style>body{font-family:sans-serif;}table{border-collapse:collapse;width:100%;margin-bottom:20px;}th,td{border:1px solid #ccc;padding:8px;text-align:left;}th{background:#eee}</style></head><body>']
-html.append('<h1>Static Analysis Report</h1>')
-
-def html_table(title, headers, rows):
-    h = f"<h2>{title}</h2><table><tr>{''.join(f'<th>{col}</th>' for col in headers)}</tr>"
-    for row in rows:
-        h += "<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>"
-    h += "</table>"
-    return h
-
-# --- C (cppcheck) ---
-if Path("reports/cppcheck.xml").exists():
-    tree = ET.parse("reports/cppcheck.xml")
-    errors = tree.findall(".//error")
-    rows = []
-    for e in errors:
-        loc = e.find("location")
-        file = loc.attrib.get("file", "") if loc is not None else ""
-        line = loc.attrib.get("line", "") if loc is not None else ""
-        rows.append([file, line, e.attrib.get("severity", ""), e.attrib.get("id", ""), e.attrib.get("msg", "")])
-    html.append(html_table("C - cppcheck", ["File", "Line", "Severity", "ID", "Message"], rows or [["No issues found"]]))
-
-# --- Python (flake8 & pylint) ---
-def read_txt(path, title):
-    rows = []
-    if os.path.exists(path):
-        with open(path) as f:
-            for line in f:
-                parts = line.strip().split(":", 3)
-                if len(parts) >= 4:
-                    rows.append(parts)
-        html.append(html_table(title, ["File", "Line", "Col", "Message"], rows or [["No issues found"]]))
-
-read_txt("reports/flake8.txt", "Python - flake8")
-
-if os.path.exists("reports/pylint.txt"):
-    rows = []
-    with open("reports/pylint.txt") as f:
-        for line in f:
-            if ":" in line and line[0].isalpha():
-                parts = line.strip().split(":", 3)
-                if len(parts) >= 4:
-                    rows.append(parts)
-    html.append(html_table("Python - pylint", ["Type", "File", "Line", "Message"], rows or [["No issues found"]]))
-
-# --- Java (checkstyle) ---
-if Path("reports/checkstyle.xml").exists():
-    try:
-        tree = ET.parse("reports/checkstyle.xml")
-        rows = []
-        for f in tree.findall(".//file"):
-            filename = f.attrib.get("name", "")
-            for e in f.findall("error"):
-                rows.append([filename, e.attrib.get("line", ""), e.attrib.get("severity", ""), e.attrib.get("message", "")])
-        html.append(html_table("Java - checkstyle", ["File", "Line", "Severity", "Message"], rows or [["No issues found"]]))
-    except Exception as e:
-        html.append("<p>Error parsing Java checkstyle output</p>")
-
-# --- Makefile (checkmake) ---
-if Path("reports/checkmake.txt").exists():
-    rows = []
-    with open("reports/checkmake.txt") as f:
-        for line in f:
-            if ":" in line:
-                parts = line.strip().split(":", 2)
-                if len(parts) == 3:
-                    rows.append(parts)
-    html.append(html_table("Makefile - checkmake", ["File", "Line", "Message"], rows or [["No issues found"]]))
-
-html.append("</body></html>")
-with open("reports/staticcheck.html", "w") as f:
-    f.write("\n".join(html))
-EOF
-
-      - name: Upload HTML Report
-        uses: actions/upload-artifact@v4
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v3
         with:
-          name: staticcheck-html-report
-          path: reports/staticcheck.html
+          name: code-lint-report
+          path: lint-report.html
