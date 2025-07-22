@@ -1,48 +1,87 @@
-name: Code Lint & HTML Report
+name: Multi-Language Static Check
 
 on:
+  workflow_dispatch:
+    inputs:
+      target_repository:
+        description: 'Target repository (e.g., owner/repo-name)'
+        required: true
+        type: string
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
-  pull_request:
 
 jobs:
-  lint:
+  static-analysis:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout current repo
+        uses: actions/checkout@v4
 
-      - name: Install tools
+      - name: Checkout target repo if manual trigger
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.target_repository }}
+          token: ${{ secrets.IOS_TOKEN }}
+
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-tidy cppcheck golang
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.56.2
-          pip install pandas jinja2
+          sudo apt-get install -y cppcheck python3-pip openjdk-17-jdk curl
+          pip3 install flake8 pylint
 
-      - name: Run clang-tidy
-        run: |
-          find . -name '*.c' -o -name '*.cpp' > c_cpp_files.txt || true
-          while read -r file; do
-            clang-tidy "$file" -- > "clang_tidy_${file//\//_}.txt" || true
-          done < c_cpp_files.txt
+      - name: Set up Go and install checkmake
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
 
-      - name: Run cppcheck
+      - name: Install checkmake & staticcheck
         run: |
-          cppcheck . --enable=all --xml 2> cppcheck.xml || true
+          go install github.com/mrtazz/checkmake/cmd/checkmake@latest
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          echo "${HOME}/go/bin" >> $GITHUB_PATH
 
-      - name: Run golangci-lint
+      - name: Download Checkstyle
         run: |
-          if [ -d "./go.mod" ] || [ -d "./*.go" ]; then
-            golangci-lint run --out-format checkstyle > golint.xml || true
+          curl -LJO https://github.com/checkstyle/checkstyle/releases/download/checkstyle-10.12.4/checkstyle-10.12.4-all.jar
+
+      - name: Run all static checks and generate JSON results
+        run: |
+          mkdir -p reports/json
+
+          # -------- C / C++ (cppcheck) --------
+          if find . -name '*.c' -o -name '*.cpp' | grep -q .; then
+            cppcheck --enable=all --xml --xml-version=2 . 2> reports/json/cppcheck.xml
+          else
+            echo "<results></results>" > reports/json/cppcheck.xml
           fi
 
-      - name: Generate HTML Report
-        run: |
-          python3 scripts/generate_html_report.py
+          # -------- Python --------
+          flake8 --format=%(path)s::%(row)d::%(code)s::%(text)s . > reports/json/flake8.txt || true
+          pylint $(find . -name '*.py') --output-format=text > reports/json/pylint.txt || true
 
-      - name: Upload HTML report
-        uses: actions/upload-artifact@v3
+          # -------- Java --------
+          find . -name "*.java" > java-files.txt
+          if [ -s java-files.txt ]; then
+            java -jar checkstyle-10.12.4-all.jar -c /google_checks.xml -f xml -o reports/json/checkstyle.xml @java-files.txt || true
+          else
+            echo "<checkstyle></checkstyle>" > reports/json/checkstyle.xml
+          fi
+
+          # -------- Makefile --------
+          find . -name 'Makefile' -exec checkmake {} \; > reports/json/checkmake.txt || true
+
+          # -------- Go --------
+          staticcheck ./... > reports/json/staticcheck.txt || true
+
+      - name: Generate structured HTML report
+        run: python3 generate_html_report.py
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
         with:
-          name: code-lint-report
-          path: lint-report.html
+          name: structured-static-analysis
+          path: reports/structured-report.html
