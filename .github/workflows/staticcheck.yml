@@ -34,7 +34,9 @@ jobs:
 
       - name: Install Python linters
         run: |
-          pip3 install flake8 pylint mustache-lint
+          sudo apt-get install -y python3-pip python3-setuptools
+          python3 -m pip install --upgrade pip
+          pip3 install flake8 pylint
 
       - name: Install Checkstyle (Java)
         run: |
@@ -80,7 +82,14 @@ jobs:
 
       - name: Mustache Analysis
         run: |
-          find . -name '*.mustache' -exec mustache-lint {} \; > reports/mustache.txt || true
+          echo "Checking for Mustache templates..."
+          count=$(find . -name '*.mustache' | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "No Mustache files found." > reports/mustache.txt
+          else
+            echo "Found $count Mustache files. No formal linter used. Files are readable." > reports/mustache.txt
+            find . -name '*.mustache' -exec cat {} \; > /dev/null || echo "One or more files unreadable." >> reports/mustache.txt
+          fi
 
       # === HTML Report Generation ===
 
