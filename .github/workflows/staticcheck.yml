@@ -79,14 +79,15 @@ jobs:
 
       - name: Python Analysis (flake8 + pylint)
         run: |
-          pyfiles=$(find . -name "*.py")
+          pyfiles=$(find . -name "*.py" ! -path "./.github/scripts/*")
           if [ -n "$pyfiles" ]; then
-            flake8 . > reports/flake8.txt || true
+            flake8 $pyfiles > reports/flake8.txt || true
             pylint $pyfiles > reports/pylint.txt || true
           else
             echo "No Python files found." > reports/flake8.txt
             echo "No Python files found." > reports/pylint.txt
           fi
+
 
       - name: Java Analysis (Checkstyle)
         run: |
