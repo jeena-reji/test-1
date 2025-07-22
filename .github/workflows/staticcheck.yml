@@ -49,7 +49,7 @@ jobs:
 
       - name: Install checkmake
         run: |
-          go install github.com/mrtazz/checkmake@latest
+          go install github.com/mrtazz/checkmake/cmd/checkmake@latest
           echo "${HOME}/go/bin" >> $GITHUB_PATH
 
       # === Static Checks ===
