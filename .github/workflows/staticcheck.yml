@@ -27,61 +27,110 @@ jobs:
           repository: ${{ github.event.inputs.target_repository }}
           token: ${{ secrets.IOS_TOKEN }}
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cppcheck python3-pip openjdk-17-jdk curl
+          sudo apt-get install -y clang-tidy cppcheck python3-pip openjdk-17-jdk curl unzip python3-setuptools
+          python3 -m pip install --upgrade pip
           pip3 install flake8 pylint
 
-      - name: Set up Go and install checkmake
+      - name: Install Checkstyle (Java)
+        run: |
+          curl -LJO https://github.com/checkstyle/checkstyle/releases/download/checkstyle-10.12.4/checkstyle-10.12.4-all.jar
+
+      - name: Set up Go (for checkmake)
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
 
-      - name: Install checkmake & staticcheck
+      - name: Install checkmake
         run: |
           go install github.com/mrtazz/checkmake/cmd/checkmake@latest
-          go install honnef.co/go/tools/cmd/staticcheck@latest
           echo "${HOME}/go/bin" >> $GITHUB_PATH
 
-      - name: Download Checkstyle
-        run: |
-          curl -LJO https://github.com/checkstyle/checkstyle/releases/download/checkstyle-10.12.4/checkstyle-10.12.4-all.jar
+      - name: Create report folder
+        run: mkdir -p reports
 
-      - name: Run all static checks and generate JSON results
+      - name: C/C++ Analysis (clang-tidy + cppcheck)
         run: |
-          mkdir -p reports/json
-
-          # -------- C / C++ (cppcheck) --------
-          if find . -name '*.c' -o -name '*.cpp' | grep -q .; then
-            cppcheck --enable=all --xml --xml-version=2 . 2> reports/json/cppcheck.xml
+          find . -name '*.c' -o -name '*.cpp' > cfiles.txt
+          if [ -s cfiles.txt ]; then
+            cppcheck . 2> reports/cppcheck.txt || true
+            clang-tidy $(cat cfiles.txt) -- 2> reports/clang-tidy.txt || true
           else
-            echo "<results></results>" > reports/json/cppcheck.xml
+            echo "No C/C++ files found." > reports/clang-tidy.txt
+            echo "No C/C++ files found." > reports/cppcheck.txt
           fi
 
-          # -------- Python --------
-          flake8 --format=%(path)s::%(row)d::%(code)s::%(text)s . > reports/json/flake8.txt || true
-          pylint $(find . -name '*.py') --output-format=text > reports/json/pylint.txt || true
+      - name: Python Analysis (flake8 + pylint)
+        run: |
+          pyfiles=$(find . -name "*.py")
+          if [ -n "$pyfiles" ]; then
+            flake8 . > reports/flake8.txt || true
+            pylint $pyfiles > reports/pylint.txt || true
+          else
+            echo "No Python files found." > reports/flake8.txt
+            echo "No Python files found." > reports/pylint.txt
+          fi
 
-          # -------- Java --------
+      - name: Java Analysis (Checkstyle)
+        run: |
           find . -name "*.java" > java-files.txt
           if [ -s java-files.txt ]; then
-            java -jar checkstyle-10.12.4-all.jar -c /google_checks.xml -f xml -o reports/json/checkstyle.xml @java-files.txt || true
+            java -jar checkstyle-10.12.4-all.jar -c /google_checks.xml -f plain -o reports/checkstyle.txt @java-files.txt || true
           else
-            echo "<checkstyle></checkstyle>" > reports/json/checkstyle.xml
+            echo "No Java files found." > reports/checkstyle.txt
           fi
 
-          # -------- Makefile --------
-          find . -name 'Makefile' -exec checkmake {} \; > reports/json/checkmake.txt || true
+      - name: Makefile Analysis (checkmake)
+        run: |
+          makefiles=$(find . -name 'Makefile')
+          if [ -n "$makefiles" ]; then
+            echo "$makefiles" | xargs -n1 checkmake > reports/checkmake.txt || true
+          else
+            echo "No Makefiles found." > reports/checkmake.txt
+          fi
 
-          # -------- Go --------
-          staticcheck ./... > reports/json/staticcheck.txt || true
+      - name: Mustache Analysis
+        run: |
+          count=$(find . -name '*.mustache' | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "No Mustache files found." > reports/mustache.txt
+          else
+            echo "Found $count Mustache files. No formal linter used. Files are readable." > reports/mustache.txt
+            find . -name '*.mustache' -exec cat {} \; > /dev/null || echo "One or more files unreadable." >> reports/mustache.txt
+          fi
 
-      - name: Generate structured HTML report
-        run: python3 generate_html_report.py
+      - name: Generate Structured HTML Report
+        run: |
+          echo '<html><head><style>
+          body { font-family: Arial; }
+          h1 { color: #333; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+          th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+          th { background-color: #f2f2f2; }
+          pre { white-space: pre-wrap; }
+          </style></head><body>' > reports/staticcheck.html
 
-      - name: Upload report
+          echo '<h1>Static Analysis Report</h1>' >> reports/staticcheck.html
+
+          for file in reports/*.txt; do
+            name=$(basename "$file")
+            echo "<h2>$name</h2><table><tr><th>Line</th><th>Message</th></tr>" >> reports/staticcheck.html
+            lineno=0
+            while IFS= read -r line; do
+              lineno=$((lineno+1))
+              safe=$(echo "$line" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+              echo "<tr><td>$lineno</td><td><pre>$safe</pre></td></tr>" >> reports/staticcheck.html
+            done < "$file"
+            echo "</table>" >> reports/staticcheck.html
+          done
+
+          echo "</body></html>" >> reports/staticcheck.html
+
+      - name: Upload Report Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: structured-static-analysis
-          path: reports/structured-report.html
+          name: staticcheck-reports
+          path: reports/
+          retention-days: 14
