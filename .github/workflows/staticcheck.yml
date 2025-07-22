@@ -103,30 +103,8 @@ jobs:
 
       - name: Generate Structured HTML Report
         run: |
-          echo '<html><head><style>
-          body { font-family: Arial; }
-          h1 { color: #333; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-          th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-          th { background-color: #f2f2f2; }
-          pre { white-space: pre-wrap; }
-          </style></head><body>' > reports/staticcheck.html
+          python3 .github/scripts/generate_html_report.py
 
-          echo '<h1>Static Analysis Report</h1>' >> reports/staticcheck.html
-
-          for file in reports/*.txt; do
-            name=$(basename "$file")
-            echo "<h2>$name</h2><table><tr><th>Line</th><th>Message</th></tr>" >> reports/staticcheck.html
-            lineno=0
-            while IFS= read -r line; do
-              lineno=$((lineno+1))
-              safe=$(echo "$line" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
-              echo "<tr><td>$lineno</td><td><pre>$safe</pre></td></tr>" >> reports/staticcheck.html
-            done < "$file"
-            echo "</table>" >> reports/staticcheck.html
-          done
-
-          echo "</body></html>" >> reports/staticcheck.html
 
       - name: Upload Report Artifacts
         uses: actions/upload-artifact@v4
