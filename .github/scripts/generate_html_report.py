@@ -68,10 +68,41 @@ def parse_checkstyle(file):
     return rows
 
 def parse_flake8(file):
-    return [line.split(":", 3) for line in parse_lines(file) if ":" in line]
+     lines = parse_lines(file)
+    structured_rows = []
+    fallback_rows = []
 
+    for line in lines:
+        parts = line.split(":", 3)
+        if len(parts) == 4:
+            structured_rows.append(parts)
+        else:
+            fallback_rows.append(line)
+
+    if structured_rows:
+        return structured_rows
+    else:
+        return [["", msg] for msg in fallback_rows if msg.strip()]
 def parse_pylint(file):
-    return parse_clang_tidy(file)
+    lines = parse_lines(file)
+    structured_rows = []
+    fallback_rows = []
+
+    for line in lines:
+        if "Your code has been rated at" in line:
+            escaped = html.escape(line)
+            fallback_rows.append(f"<b>{escaped}</b>")
+        else:
+            match = re.match(r"^(.*?):(\d+):(\d+): (.*)", line)
+            if match:
+                structured_rows.append(list(match.groups()))
+            else:
+                fallback_rows.append(line)
+
+    if structured_rows:
+        return structured_rows
+    else:
+        return [["", msg] for msg in fallback_rows if msg.strip()]
 
 def parse_mustache(file):
     return [["", l] for l in parse_lines(file)]
