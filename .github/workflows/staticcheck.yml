@@ -1,4 +1,4 @@
-name: Multi-Language Static Check
+name: Multi-Language Static Check with Structured HTML Report
 
 on:
   workflow_dispatch:
@@ -18,31 +18,27 @@ jobs:
 
     steps:
       - name: Checkout current repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Checkout target repo if manual trigger
+      - name: Checkout target repo if manually triggered
         if: github.event_name == 'workflow_dispatch'
         uses: actions/checkout@v4
         with:
           repository: ${{ github.event.inputs.target_repository }}
           token: ${{ secrets.IOS_TOKEN }}
 
-      - name: Install system dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cppcheck python3-pip openjdk-17-jdk curl unzip
-
-      - name: Install Python linters
-        run: |
-          sudo apt-get install -y python3-pip python3-setuptools
+          sudo apt-get install -y cppcheck python3-pip openjdk-17-jdk curl
           python3 -m pip install --upgrade pip
-          pip3 install flake8 pylint
+          pip install flake8 pylint
 
-      - name: Install Checkstyle (Java)
+      - name: Install checkstyle
         run: |
           curl -LJO https://github.com/checkstyle/checkstyle/releases/download/checkstyle-10.12.4/checkstyle-10.12.4-all.jar
 
-      - name: Set up Go (for checkmake)
+      - name: Set up Go for checkmake
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
@@ -52,50 +48,113 @@ jobs:
           go install github.com/mrtazz/checkmake/cmd/checkmake@latest
           echo "${HOME}/go/bin" >> $GITHUB_PATH
 
-      - name: Create report folder
-        run: mkdir -p reports
-
-      - name: C Analysis (cppcheck)
+      - name: Run cppcheck (C/C++)
         run: |
-          cppcheck --enable=all --quiet --output-file=reports/cppcheck.txt . || true
+          mkdir -p reports
+          cppcheck --enable=all --inconclusive --xml --xml-version=2 . 2> reports/cppcheck.xml || true
 
-      - name: Python Analysis (flake8 + pylint)
+      - name: Run Python linters
         run: |
-          flake8 . > reports/flake8.txt || true
+          flake8 . --format=default > reports/flake8.txt || true
           pylint $(find . -name "*.py") > reports/pylint.txt || true
 
-      - name: Java Analysis (Checkstyle)
+      - name: Run Java checkstyle
         run: |
           find . -name "*.java" > java-files.txt
           if [ -s java-files.txt ]; then
-            java -jar checkstyle-10.12.4-all.jar -c /google_checks.xml -f plain -o reports/checkstyle.txt @java-files.txt || true
+            java -jar checkstyle-10.12.4-all.jar -c /google_checks.xml -f xml -o reports/checkstyle.xml @java-files.txt || true
           else
-            echo "No Java files found." > reports/checkstyle.txt
+            echo "<checkstyle></checkstyle>" > reports/checkstyle.xml
           fi
 
-      - name: Makefile Analysis (checkmake)
+      - name: Run checkmake (Makefiles)
         run: |
           find . -name 'Makefile' -exec checkmake {} \; > reports/checkmake.txt || true
 
-      - name: Mustache Analysis
+      - name: Generate structured HTML report
         run: |
-          echo "Checking for Mustache templates..."
-          count=$(find . -name '*.mustache' | wc -l)
-          if [ "$count" -eq 0 ]; then
-            echo "No Mustache files found." > reports/mustache.txt
-          else
-            echo "Found $count Mustache files. No formal linter used. Files are readable." > reports/mustache.txt
-            find . -name '*.mustache' -exec cat {} \; > /dev/null || echo "One or more files unreadable." >> reports/mustache.txt
-          fi
+          python3 <<EOF
+import os
+import xml.etree.ElementTree as ET
+from pathlib import Path
 
-      # === HTML Report Generation (structured) ===
-      - name: Generate Structured HTML Report
-        run: |
-          python3 ../scripts/generate_html_report1.py
+os.makedirs('reports', exist_ok=True)
+html = ['<html><head><style>body{font-family:sans-serif;}table{border-collapse:collapse;width:100%;margin-bottom:20px;}th,td{border:1px solid #ccc;padding:8px;text-align:left;}th{background:#eee}</style></head><body>']
+html.append('<h1>Static Analysis Report</h1>')
 
-      - name: Upload Report Artifacts
+def html_table(title, headers, rows):
+    h = f"<h2>{title}</h2><table><tr>{''.join(f'<th>{col}</th>' for col in headers)}</tr>"
+    for row in rows:
+        h += "<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>"
+    h += "</table>"
+    return h
+
+# --- C (cppcheck) ---
+if Path("reports/cppcheck.xml").exists():
+    tree = ET.parse("reports/cppcheck.xml")
+    errors = tree.findall(".//error")
+    rows = []
+    for e in errors:
+        loc = e.find("location")
+        file = loc.attrib.get("file", "") if loc is not None else ""
+        line = loc.attrib.get("line", "") if loc is not None else ""
+        rows.append([file, line, e.attrib.get("severity", ""), e.attrib.get("id", ""), e.attrib.get("msg", "")])
+    html.append(html_table("C - cppcheck", ["File", "Line", "Severity", "ID", "Message"], rows or [["No issues found"]]))
+
+# --- Python (flake8 & pylint) ---
+def read_txt(path, title):
+    rows = []
+    if os.path.exists(path):
+        with open(path) as f:
+            for line in f:
+                parts = line.strip().split(":", 3)
+                if len(parts) >= 4:
+                    rows.append(parts)
+        html.append(html_table(title, ["File", "Line", "Col", "Message"], rows or [["No issues found"]]))
+
+read_txt("reports/flake8.txt", "Python - flake8")
+
+if os.path.exists("reports/pylint.txt"):
+    rows = []
+    with open("reports/pylint.txt") as f:
+        for line in f:
+            if ":" in line and line[0].isalpha():
+                parts = line.strip().split(":", 3)
+                if len(parts) >= 4:
+                    rows.append(parts)
+    html.append(html_table("Python - pylint", ["Type", "File", "Line", "Message"], rows or [["No issues found"]]))
+
+# --- Java (checkstyle) ---
+if Path("reports/checkstyle.xml").exists():
+    try:
+        tree = ET.parse("reports/checkstyle.xml")
+        rows = []
+        for f in tree.findall(".//file"):
+            filename = f.attrib.get("name", "")
+            for e in f.findall("error"):
+                rows.append([filename, e.attrib.get("line", ""), e.attrib.get("severity", ""), e.attrib.get("message", "")])
+        html.append(html_table("Java - checkstyle", ["File", "Line", "Severity", "Message"], rows or [["No issues found"]]))
+    except Exception as e:
+        html.append("<p>Error parsing Java checkstyle output</p>")
+
+# --- Makefile (checkmake) ---
+if Path("reports/checkmake.txt").exists():
+    rows = []
+    with open("reports/checkmake.txt") as f:
+        for line in f:
+            if ":" in line:
+                parts = line.strip().split(":", 2)
+                if len(parts) == 3:
+                    rows.append(parts)
+    html.append(html_table("Makefile - checkmake", ["File", "Line", "Message"], rows or [["No issues found"]]))
+
+html.append("</body></html>")
+with open("reports/staticcheck.html", "w") as f:
+    f.write("\n".join(html))
+EOF
+
+      - name: Upload HTML Report
         uses: actions/upload-artifact@v4
         with:
-          name: staticcheck-reports
-          path: reports/
-          retention-days: 14
+          name: staticcheck-html-report
+          path: reports/staticcheck.html
