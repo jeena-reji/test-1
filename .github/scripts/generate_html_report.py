@@ -99,6 +99,15 @@ TOOL_DESCRIPTIONS = {
 }
 
 def main():
+    # Define logical tool groupings
+    tool_groups = {
+        "Python": ["flake8.txt", "pylint.txt"],
+        "C/C++": ["clang-tidy.txt", "cppcheck.txt"],
+        "Makefile": ["checkmake.txt"],
+        "Java": ["checkstyle.txt"],
+        "Mustache": ["mustache.txt"],
+    }
+
     with open(HTML_OUT, "w") as out:
         out.write("<html><head><style>")
         out.write("""
@@ -113,17 +122,23 @@ def main():
         """)
         out.write("</style></head><body><h1><b>Static Analysis Report</b></h1>")
 
-        for file in sorted(REPORT_DIR.glob("*.txt")):
-            parser = PARSERS.get(file.name, parse_generic)
-            try:
-                rows = parser(file)
-                headers = TOOL_HEADERS.get(file.name, ["Message"])
-                desc = TOOL_DESCRIPTIONS.get(file.name, "")
-                out.write(make_html_table(file.name, headers, rows, description=desc))
-            except Exception as e:
-                out.write(f"<h2>{file.name}</h2><p><b>Error parsing:</b> {e}</p>")
+        for group_title, filenames in tool_groups.items():
+            out.write(f"<h2><b>{escape(group_title)}</b></h2>")
+            for fname in filenames:
+                file_path = REPORT_DIR / fname
+                if not file_path.exists():
+                    continue
+                parser = PARSERS.get(fname, parse_generic)
+                headers = TOOL_HEADERS.get(fname, ["Message"])
+                desc = TOOL_DESCRIPTIONS.get(fname, "")
+                try:
+                    rows = parser(file_path)
+                    out.write(make_html_table(fname, headers, rows, description=desc))
+                except Exception as e:
+                    out.write(f"<h3>{fname}</h3><p><b>Error parsing:</b> {e}</p>")
 
         out.write("</body></html>")
+
 
 if __name__ == "__main__":
     main()
