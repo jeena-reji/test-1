@@ -30,7 +30,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-tidy cppcheck python3-pip openjdk-17-jdk curl unzip
+          sudo apt-get install -y cppcheck python3-pip openjdk-17-jdk curl unzip
 
       - name: Install Python linters
         run: |
@@ -52,15 +52,12 @@ jobs:
           go install github.com/mrtazz/checkmake/cmd/checkmake@latest
           echo "${HOME}/go/bin" >> $GITHUB_PATH
 
-      # === Static Checks ===
-
       - name: Create report folder
         run: mkdir -p reports
 
-      - name: C/C++ Analysis (clang-tidy + cppcheck)
+      - name: C Analysis (cppcheck)
         run: |
-          cppcheck . 2> reports/cppcheck.txt || true
-          clang-tidy $(find . -name '*.c' -o -name '*.cpp') -- 2> reports/clang-tidy.txt || true
+          cppcheck --enable=all --quiet --output-file=reports/cppcheck.txt . || true
 
       - name: Python Analysis (flake8 + pylint)
         run: |
@@ -91,15 +88,10 @@ jobs:
             find . -name '*.mustache' -exec cat {} \; > /dev/null || echo "One or more files unreadable." >> reports/mustache.txt
           fi
 
-      # === HTML Report Generation ===
-
-      - name: Generate Combined HTML Report
+      # === HTML Report Generation (structured) ===
+      - name: Generate Structured HTML Report
         run: |
-          echo "<html><body><h1>Static Analysis Report</h1>" > reports/staticcheck.html
-          for file in reports/*.txt; do
-            echo "<h2>${file}</h2><pre>$(cat $file | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')</pre>" >> reports/staticcheck.html
-          done
-          echo "</body></html>" >> reports/staticcheck.html
+          python3 scripts/generate_html_report.py
 
       - name: Upload Report Artifacts
         uses: actions/upload-artifact@v4
