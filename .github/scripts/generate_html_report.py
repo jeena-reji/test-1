@@ -6,7 +6,7 @@ from html import escape
 REPORT_DIR = Path("reports")
 HTML_OUT = REPORT_DIR / "staticcheck.html"
 
-def parse_lines(path):
+def parse_lines  (path):
     with open(path) as f:
         return [line.strip("\n") for line in f.readlines()]
 
